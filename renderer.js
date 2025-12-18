@@ -9,6 +9,7 @@ const appState = {
   config: {
     token: '',
     phoneId: '',
+    codigoPais: '57',
     diasAnticipacion: 30,
     horaEjecucion: '08:00',
     mensajeTemplate: `Hola {nombre} 👋
@@ -42,7 +43,7 @@ function setupEventListeners() {
   document.getElementById('btnEnviar')?.addEventListener('click', enviarMensajes);
   document.getElementById('btnAutomatico')?.addEventListener('click', toggleAutomatico);
 
-  ['token', 'phoneId', 'diasAnticipacion', 'horaEjecucion', 'mensajeTemplate']
+  ['token', 'phoneId', 'codigoPais', 'diasAnticipacion', 'horaEjecucion', 'mensajeTemplate']
     .forEach(id => {
       document.getElementById(id)?.addEventListener('input', e => {
         appState.config[id] =
@@ -278,6 +279,53 @@ function mostrarSelectorHoja(workbook) {
 }
 
 // ============================
+// EXTRAER NÚMEROS DE 10 DÍGITOS
+// ============================
+function extraerNumerosDe10Digitos(texto) {
+  // Convertir a string y eliminar espacios
+  const textoLimpio = String(texto || '').replace(/\s/g, '');
+
+  // Extraer todos los dígitos
+  const soloDigitos = textoLimpio.replace(/\D/g, '');
+
+  const numeros = [];
+
+  // Si toda la cadena de dígitos es de 10, retornarla
+  if (soloDigitos.length === 10) {
+    numeros.push(soloDigitos);
+    return numeros;
+  }
+
+  // Buscar todos los grupos de exactamente 10 dígitos consecutivos
+  const regex = /\d{10}/g;
+  const matches = textoLimpio.match(regex);
+
+  if (matches) {
+    // Agregar números únicos
+    matches.forEach(num => {
+      const numLimpio = num.replace(/\D/g, '');
+      if (numLimpio.length === 10 && !numeros.includes(numLimpio)) {
+        numeros.push(numLimpio);
+      }
+    });
+  }
+
+  // Si no encontramos números de 10 dígitos exactos,
+  // intentar extraer del string completo de dígitos
+  if (numeros.length === 0 && soloDigitos.length >= 10) {
+    // Tomar los primeros 10 dígitos
+    numeros.push(soloDigitos.substring(0, 10));
+
+    // Si hay más de 10 dígitos, intentar extraer otro número
+    if (soloDigitos.length >= 20) {
+      numeros.push(soloDigitos.substring(10, 20));
+    }
+  }
+
+  return numeros;
+}
+
+// ============================
 // PROCESAR EXCEL (SIN FILTRAR)
 // ============================
 function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDias, headerRow) {
@@ -286,6 +334,7 @@ function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDia
 
   // ✅ CARGAR TODOS - Crear entrada por cada teléfono
   appState.contactos = [];
+  let totalTelefonosExtraidos = 0;
 
   rows.forEach(r => {
     const nombre = r[colNombre];
@@ -293,23 +342,29 @@ function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDia
 
     // Procesar cada columna de teléfono
     columnasTelefono.forEach(colTel => {
-      const telefono = String(r[colTel] || '').replace(/\D/g, '');
+      const valorCelda = r[colTel];
 
-      // Solo agregar si hay nombre y teléfono válido
-      if (nombre && telefono.length >= 10) {
-        appState.contactos.push({
-          nombre,
-          telefono,
-          dias
-        });
-      }
+      // Extraer todos los números de 10 dígitos de esta celda
+      const telefonosEncontrados = extraerNumerosDe10Digitos(valorCelda);
+
+      // Agregar cada teléfono encontrado como un contacto separado
+      telefonosEncontrados.forEach(telefono => {
+        if (nombre && telefono) {
+          appState.contactos.push({
+            nombre,
+            telefono,
+            dias
+          });
+          totalTelefonosExtraidos++;
+        }
+      });
     });
   });
 
   renderContactos();
 
   addLog(`👥 ${appState.contactos.length} contactos cargados`, 'success');
-  addLog(`📱 Procesadas ${columnasTelefono.length} columnas de teléfono`, 'info');
+  addLog(`📱 ${totalTelefonosExtraidos} números de teléfono extraídos de ${columnasTelefono.length} columna(s)`, 'info');
 
   // Mostrar estadísticas de días
   const diasUnicos = [...new Set(appState.contactos.map(c => c.dias))].sort((a, b) => a - b);
@@ -347,15 +402,36 @@ async function enviarMensajes() {
   addLog(`📤 Enviando ${aEnviar.length} mensajes`, 'info');
 
   for (const c of aEnviar) {
+    // Formatear número con código de país
+    const numeroFormateado = formatearNumeroWhatsApp(c.telefono);
+
     await ipcRenderer.invoke('send-whatsapp', {
       token: appState.config.token,
       phoneId: appState.config.phoneId,
-      numero: c.telefono,
+      numero: numeroFormateado,
       mensaje: generarMensaje(c)
     });
+
+    addLog(`📲 Enviado a ${c.nombre}: +${numeroFormateado}`, 'info');
   }
 
   addLog('✅ Mensajes enviados correctamente', 'success');
+}
+
+// ============================
+// FORMATEAR NÚMERO PARA WHATSAPP
+// ============================
+function formatearNumeroWhatsApp(telefono) {
+  // Eliminar todo lo que no sea dígito
+  const soloDigitos = String(telefono).replace(/\D/g, '');
+
+  // Si ya tiene el código de país, retornarlo
+  if (soloDigitos.startsWith(appState.config.codigoPais)) {
+    return soloDigitos;
+  }
+
+  // Agregar código de país
+  return appState.config.codigoPais + soloDigitos;
 }
 
 // ============================
@@ -399,10 +475,11 @@ function renderContactos() {
   }
 
   contactosMostrar.forEach(c => {
+    const numeroFormateado = formatearNumeroWhatsApp(c.telefono);
     cont.innerHTML += `
       <div class="contact-item">
         <strong>${c.nombre}</strong><br>
-        📱 ${c.telefono} — ⏱ ${c.dias} días
+        📱 +${numeroFormateado} — ⏱ ${c.dias} días
       </div>
     `;
   });
