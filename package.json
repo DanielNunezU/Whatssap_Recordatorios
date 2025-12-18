@@ -1,0 +1,66 @@
+{
+  "name": "whatsapp-recordatorios",
+  "version": "1.0.0",
+  "description": "Sistema automatizado de recordatorios por WhatsApp Business",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder build --win --publish never",
+    "build-all": "electron-builder build --win --mac --linux --publish never"
+  },
+  "keywords": [
+    "whatsapp",
+    "recordatorios",
+    "automatizacion"
+  ],
+  "author": "Tu Nombre",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.2",
+    "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.tuempresa.whatsapp-recordatorios",
+    "productName": "WhatsApp Recordatorios",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.png"
+    }
+  }
+}
