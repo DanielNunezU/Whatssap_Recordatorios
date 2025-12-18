@@ -10,7 +10,6 @@ const appState = {
     token: '',
     phoneId: '',
     codigoPais: '57',
-    diasAnticipacion: 30,
     horaEjecucion: '08:00',
     mensajeTemplate: `Hola {nombre} 👋
 
@@ -43,11 +42,10 @@ function setupEventListeners() {
   document.getElementById('btnEnviar')?.addEventListener('click', enviarMensajes);
   document.getElementById('btnAutomatico')?.addEventListener('click', toggleAutomatico);
 
-  ['token', 'phoneId', 'codigoPais', 'diasAnticipacion', 'horaEjecucion', 'mensajeTemplate']
+  ['token', 'phoneId', 'codigoPais', 'horaEjecucion', 'mensajeTemplate']
     .forEach(id => {
       document.getElementById(id)?.addEventListener('input', e => {
-        appState.config[id] =
-          id === 'diasAnticipacion' ? Number(e.target.value) : e.target.value;
+        appState.config[id] = e.target.value;
       });
     });
 
