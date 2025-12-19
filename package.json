@@ -46,7 +46,11 @@
           ]
         }
       ],
-      "icon": "icon.ico"
+      "icon": "icon.ico",
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "sign": null
     },
     "portable": {
       "artifactName": "${productName}-${version}-Portable.${ext}"
