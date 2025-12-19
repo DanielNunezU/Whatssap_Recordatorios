@@ -34,7 +34,7 @@
       "preload.js",
       "index.html",
       "renderer.js",
-      "styles.css",
+      "style.css",
       "node_modules/**/*"
     ],
     "win": {
