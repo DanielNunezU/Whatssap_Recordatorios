@@ -56,6 +56,8 @@ function setupEventListeners() {
     if (e.target.value === 'custom') {
       diasCustomInput.style.display = 'block';
       appState.filtrarDias = '';
+      renderContactos();
+      updateSendButton();
     } else {
       diasCustomInput.style.display = 'none';
       appState.filtrarDias = e.target.value;
@@ -92,16 +94,27 @@ async function loadConfig() {
 
   appState.config = { ...appState.config, ...res.config };
 
+  // Cargar valores en los campos EXCEPTO diasEnvio (siempre inicia vacío)
   Object.keys(appState.config).forEach(k => {
+    if (k === 'diasEnvio') return; // NO cargar diasEnvio
     const el = document.getElementById(k);
     if (el) el.value = appState.config[k];
   });
+
+  // Resetear diasEnvio a vacío al iniciar
+  appState.config.diasEnvio = '';
+  const diasEnvioEl = document.getElementById('diasEnvio');
+  if (diasEnvioEl) diasEnvioEl.value = '';
 
   addLog('⚙️ Configuración cargada', 'info');
 }
 
 async function saveConfig() {
-  await ipcRenderer.invoke('save-config', appState.config);
+  // Guardar config SIN diasEnvio (solo temporal para la sesión)
+  const configToSave = { ...appState.config };
+  delete configToSave.diasEnvio; // No guardar diasEnvio
+
+  await ipcRenderer.invoke('save-config', configToSave);
   addLog('💾 Configuración guardada', 'success');
 }
 
@@ -117,10 +130,27 @@ async function cargarArchivo() {
     return;
   }
 
-  addLog(`📂 Archivo cargado: ${result.name}`, 'info');
+  addLog(`📂 Cargando archivo: ${result.name}...`, 'info');
 
-  const workbook = XLSX.readFile(result.path, { raw: false });
-  mostrarSelectorHoja(workbook);
+  // ⚡ Mostrar indicador de carga
+  const btnCargar = document.getElementById('btnCargar');
+  const textoOriginal = btnCargar.innerHTML;
+  btnCargar.disabled = true;
+  btnCargar.innerHTML = '<span style="display:flex;align-items:center;gap:8px">⏳ Cargando...</span>';
+
+  try {
+    // Leer archivo con timeout para no bloquear UI
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const workbook = XLSX.readFile(result.path, { raw: false });
+
+    addLog(`✅ Archivo cargado: ${result.name}`, 'success');
+    mostrarSelectorHoja(workbook);
+  } catch (error) {
+    addLog(`❌ Error al cargar archivo: ${error.message}`, 'error');
+  } finally {
+    btnCargar.disabled = false;
+    btnCargar.innerHTML = textoOriginal;
+  }
 }
 
 // ============================
@@ -205,14 +235,18 @@ function mostrarSelectorHoja(workbook) {
     const headerRow = Number(headerRowInput.value) - 1;
     const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
 
+    // ⚡ OPTIMIZACIÓN: Solo leer primeras 5 filas para detectar columnas
     const data = XLSX.utils.sheet_to_json(sheet, {
       range: headerRow,
-      defval: ''
+      header: 1,
+      defval: '',
+      raw: false
     });
 
-    if (!data.length) return;
+    if (!data.length || !data[0]) return;
 
-    todasColumnas = Object.keys(data[0]);
+    // Obtener nombres de columnas de la primera fila
+    todasColumnas = data[0].filter(col => col && col.trim());
 
     // Actualizar columna nombre y días
     [colNombre, colDias].forEach(sel => {
@@ -281,43 +315,24 @@ function mostrarSelectorHoja(workbook) {
 // EXTRAER NÚMEROS DE 10 DÍGITOS
 // ============================
 function extraerNumerosDe10Digitos(texto) {
-  // Convertir a string y eliminar espacios
-  const textoLimpio = String(texto || '').replace(/\s/g, '');
+  if (!texto) return [];
 
-  // Extraer todos los dígitos
-  const soloDigitos = textoLimpio.replace(/\D/g, '');
+  // Convertir a string y extraer solo dígitos
+  const soloDigitos = String(texto).replace(/\D/g, '');
 
   const numeros = [];
 
-  // Si toda la cadena de dígitos es de 10, retornarla
+  // Si tiene exactamente 10 dígitos, retornar
   if (soloDigitos.length === 10) {
-    numeros.push(soloDigitos);
-    return numeros;
+    return [soloDigitos];
   }
 
-  // Buscar todos los grupos de exactamente 10 dígitos consecutivos
-  const regex = /\d{10}/g;
-  const matches = textoLimpio.match(regex);
-
-  if (matches) {
-    // Agregar números únicos
-    matches.forEach(num => {
-      const numLimpio = num.replace(/\D/g, '');
-      if (numLimpio.length === 10 && !numeros.includes(numLimpio)) {
-        numeros.push(numLimpio);
-      }
-    });
-  }
-
-  // Si no encontramos números de 10 dígitos exactos,
-  // intentar extraer del string completo de dígitos
-  if (numeros.length === 0 && soloDigitos.length >= 10) {
-    // Tomar los primeros 10 dígitos
-    numeros.push(soloDigitos.substring(0, 10));
-
-    // Si hay más de 10 dígitos, intentar extraer otro número
-    if (soloDigitos.length >= 20) {
-      numeros.push(soloDigitos.substring(10, 20));
+  // Buscar grupos de 10 dígitos consecutivos
+  for (let i = 0; i <= soloDigitos.length - 10; i++) {
+    const grupo = soloDigitos.substr(i, 10);
+    if (!numeros.includes(grupo)) {
+      numeros.push(grupo);
+      i += 9; // Saltar para evitar solapamientos
     }
   }
 
@@ -327,43 +342,74 @@ function extraerNumerosDe10Digitos(texto) {
 // ============================
 // PROCESAR EXCEL (SIN FILTRAR)
 // ============================
-function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDias, headerRow) {
+async function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDias, headerRow) {
+  const startTime = Date.now();
+  addLog(`⚙️ Procesando datos...`, 'info');
+
+  // Pequeño delay para que se muestre el mensaje
+  await new Promise(resolve => setTimeout(resolve, 10));
+
   const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
   const rows = XLSX.utils.sheet_to_json(sheet, { range: headerRow, defval: '' });
+
+  addLog(`📊 Procesando ${rows.length} filas...`, 'info');
 
   // ✅ CARGAR TODOS - Crear entrada por cada teléfono
   appState.contactos = [];
   let totalTelefonosExtraidos = 0;
 
-  rows.forEach(r => {
-    const nombre = r[colNombre];
-    const dias = Number(r[colDias]);
+  // ⚡ Procesar en lotes más grandes para mejor rendimiento
+  const BATCH_SIZE = 500;
+  const totalBatches = Math.ceil(rows.length / BATCH_SIZE);
 
-    // Procesar cada columna de teléfono
-    columnasTelefono.forEach(colTel => {
-      const valorCelda = r[colTel];
+  for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
+    const start = batchNum * BATCH_SIZE;
+    const end = Math.min(start + BATCH_SIZE, rows.length);
+    const batch = rows.slice(start, end);
 
-      // Extraer todos los números de 10 dígitos de esta celda
-      const telefonosEncontrados = extraerNumerosDe10Digitos(valorCelda);
+    batch.forEach(r => {
+      const nombre = r[colNombre];
+      const dias = Number(r[colDias]);
 
-      // Agregar cada teléfono encontrado como un contacto separado
-      telefonosEncontrados.forEach(telefono => {
-        if (nombre && telefono) {
+      if (!nombre) return; // Skip si no hay nombre
+
+      // Procesar cada columna de teléfono
+      columnasTelefono.forEach(colTel => {
+        const valorCelda = r[colTel];
+        if (!valorCelda) return;
+
+        // Extraer todos los números de 10 dígitos de esta celda
+        const telefonosEncontrados = extraerNumerosDe10Digitos(valorCelda);
+
+        // Agregar cada teléfono encontrado como un contacto separado
+        telefonosEncontrados.forEach(telefono => {
           appState.contactos.push({
             nombre,
             telefono,
             dias
           });
           totalTelefonosExtraidos++;
-        }
+        });
       });
     });
-  });
+
+    // Mostrar progreso cada 25%
+    const progreso = Math.round(((batchNum + 1) / totalBatches) * 100);
+    if (progreso % 25 === 0 && batchNum < totalBatches - 1) {
+      addLog(`⏳ Progreso: ${progreso}% (${end} de ${rows.length} filas)`, 'info');
+    }
+
+    // Pequeño delay cada lote para mantener UI responsiva
+    if (batchNum < totalBatches - 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
 
   renderContactos();
 
-  addLog(`👥 ${appState.contactos.length} contactos cargados`, 'success');
-  addLog(`📱 ${totalTelefonosExtraidos} números de teléfono extraídos de ${columnasTelefono.length} columna(s)`, 'info');
+  const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+  addLog(`👥 ${appState.contactos.length} contactos cargados en ${duration}s`, 'success');
+  addLog(`📱 ${totalTelefonosExtraidos} números extraídos de ${columnasTelefono.length} columna(s)`, 'info');
 
   // Mostrar estadísticas de días
   const diasUnicos = [...new Set(appState.contactos.map(c => c.dias))].sort((a, b) => a - b);
@@ -379,8 +425,17 @@ function generarMensaje(c) {
   return appState.config.mensajeTemplate.replace('{nombre}', c.nombre);
 }
 
-function getContactosFiltrados() {
-  // Prioridad: 1) Días configurados en Config, 2) Filtro de UI, 3) Todos
+// Filtro para VISUALIZACIÓN (solo usa filtro de UI)
+function getContactosParaMostrar() {
+  if (!appState.filtrarDias) {
+    return appState.contactos;
+  }
+  const diasFiltro = Number(appState.filtrarDias);
+  return appState.contactos.filter(c => c.dias === diasFiltro);
+}
+
+// Filtro para ENVÍO (usa diasEnvio de Config si está configurado, sino filtro UI)
+function getContactosParaEnviar() {
   const diasConfig = appState.config.diasEnvio;
   const diasUI = appState.filtrarDias;
 
@@ -398,7 +453,7 @@ function getContactosFiltrados() {
 }
 
 async function enviarMensajes() {
-  const aEnviar = getContactosFiltrados();
+  const aEnviar = getContactosParaEnviar();
 
   if (!aEnviar.length) {
     const diasConfig = appState.config.diasEnvio;
@@ -482,7 +537,7 @@ function renderContactos() {
   const count = document.getElementById('contactCount');
   cont.innerHTML = '';
 
-  const contactosMostrar = getContactosFiltrados();
+  const contactosMostrar = getContactosParaMostrar();
   count.textContent = appState.filtrarDias
     ? `${contactosMostrar.length} / ${appState.contactos.length}`
     : appState.contactos.length;
@@ -495,21 +550,27 @@ function renderContactos() {
     return;
   }
 
+  // ⚡ Usar DocumentFragment para renderizado eficiente
+  const fragment = document.createDocumentFragment();
+
   contactosMostrar.forEach(c => {
     const numeroFormateado = formatearNumeroWhatsApp(c.telefono);
-    cont.innerHTML += `
-      <div class="contact-item">
-        <strong>${c.nombre}</strong><br>
-        📱 +${numeroFormateado} — ⏱ ${c.dias} días
-      </div>
+    const div = document.createElement('div');
+    div.className = 'contact-item';
+    div.innerHTML = `
+      <strong>${c.nombre}</strong><br>
+      📱 +${numeroFormateado} — ⏱ ${c.dias} días
     `;
+    fragment.appendChild(div);
   });
+
+  cont.appendChild(fragment);
 }
 
 function updateSendButton() {
   const btnEnviar = document.getElementById('btnEnviar');
-  const contactosFiltrados = getContactosFiltrados();
-  btnEnviar.disabled = contactosFiltrados.length === 0;
+  const contactosParaEnviar = getContactosParaEnviar();
+  btnEnviar.disabled = contactosParaEnviar.length === 0;
 }
 
 function addLog(msg, type = 'info') {
