@@ -56,6 +56,8 @@ function setupEventListeners() {
     if (e.target.value === 'custom') {
       diasCustomInput.style.display = 'block';
       appState.filtrarDias = '';
+      renderContactos();
+      updateSendButton();
     } else {
       diasCustomInput.style.display = 'none';
       appState.filtrarDias = e.target.value;
