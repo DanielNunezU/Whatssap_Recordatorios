@@ -418,8 +418,17 @@ function generarMensaje(c) {
   return appState.config.mensajeTemplate.replace('{nombre}', c.nombre);
 }
 
-function getContactosFiltrados() {
-  // Prioridad: 1) Días configurados en Config, 2) Filtro de UI, 3) Todos
+// Filtro para VISUALIZACIÓN (solo usa filtro de UI)
+function getContactosParaMostrar() {
+  if (!appState.filtrarDias) {
+    return appState.contactos;
+  }
+  const diasFiltro = Number(appState.filtrarDias);
+  return appState.contactos.filter(c => c.dias === diasFiltro);
+}
+
+// Filtro para ENVÍO (usa diasEnvio de Config si está configurado, sino filtro UI)
+function getContactosParaEnviar() {
   const diasConfig = appState.config.diasEnvio;
   const diasUI = appState.filtrarDias;
 
@@ -437,7 +446,7 @@ function getContactosFiltrados() {
 }
 
 async function enviarMensajes() {
-  const aEnviar = getContactosFiltrados();
+  const aEnviar = getContactosParaEnviar();
 
   if (!aEnviar.length) {
     const diasConfig = appState.config.diasEnvio;
@@ -521,7 +530,7 @@ function renderContactos() {
   const count = document.getElementById('contactCount');
   cont.innerHTML = '';
 
-  const contactosMostrar = getContactosFiltrados();
+  const contactosMostrar = getContactosParaMostrar();
   count.textContent = appState.filtrarDias
     ? `${contactosMostrar.length} / ${appState.contactos.length}`
     : appState.contactos.length;
@@ -547,8 +556,8 @@ function renderContactos() {
 
 function updateSendButton() {
   const btnEnviar = document.getElementById('btnEnviar');
-  const contactosFiltrados = getContactosFiltrados();
-  btnEnviar.disabled = contactosFiltrados.length === 0;
+  const contactosParaEnviar = getContactosParaEnviar();
+  btnEnviar.disabled = contactosParaEnviar.length === 0;
 }
 
 function addLog(msg, type = 'info') {
