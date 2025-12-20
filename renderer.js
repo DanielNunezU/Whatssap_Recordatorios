@@ -117,10 +117,27 @@ async function cargarArchivo() {
     return;
   }
 
-  addLog(`📂 Archivo cargado: ${result.name}`, 'info');
+  addLog(`📂 Cargando archivo: ${result.name}...`, 'info');
 
-  const workbook = XLSX.readFile(result.path, { raw: false });
-  mostrarSelectorHoja(workbook);
+  // ⚡ Mostrar indicador de carga
+  const btnCargar = document.getElementById('btnCargar');
+  const textoOriginal = btnCargar.innerHTML;
+  btnCargar.disabled = true;
+  btnCargar.innerHTML = '<span style="display:flex;align-items:center;gap:8px">⏳ Cargando...</span>';
+
+  try {
+    // Leer archivo con timeout para no bloquear UI
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const workbook = XLSX.readFile(result.path, { raw: false });
+
+    addLog(`✅ Archivo cargado: ${result.name}`, 'success');
+    mostrarSelectorHoja(workbook);
+  } catch (error) {
+    addLog(`❌ Error al cargar archivo: ${error.message}`, 'error');
+  } finally {
+    btnCargar.disabled = false;
+    btnCargar.innerHTML = textoOriginal;
+  }
 }
 
 // ============================
@@ -205,14 +222,18 @@ function mostrarSelectorHoja(workbook) {
     const headerRow = Number(headerRowInput.value) - 1;
     const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
 
+    // ⚡ OPTIMIZACIÓN: Solo leer primeras 5 filas para detectar columnas
     const data = XLSX.utils.sheet_to_json(sheet, {
       range: headerRow,
-      defval: ''
+      header: 1,
+      defval: '',
+      raw: false
     });
 
-    if (!data.length) return;
+    if (!data.length || !data[0]) return;
 
-    todasColumnas = Object.keys(data[0]);
+    // Obtener nombres de columnas de la primera fila
+    todasColumnas = data[0].filter(col => col && col.trim());
 
     // Actualizar columna nombre y días
     [colNombre, colDias].forEach(sel => {
@@ -327,38 +348,56 @@ function extraerNumerosDe10Digitos(texto) {
 // ============================
 // PROCESAR EXCEL (SIN FILTRAR)
 // ============================
-function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDias, headerRow) {
+async function procesarExcel(workbook, sheetIndex, colNombre, columnasTelefono, colDias, headerRow) {
+  addLog(`⚙️ Procesando datos...`, 'info');
+
+  // Pequeño delay para que se muestre el mensaje
+  await new Promise(resolve => setTimeout(resolve, 10));
+
   const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
   const rows = XLSX.utils.sheet_to_json(sheet, { range: headerRow, defval: '' });
+
+  addLog(`📊 Procesando ${rows.length} filas...`, 'info');
 
   // ✅ CARGAR TODOS - Crear entrada por cada teléfono
   appState.contactos = [];
   let totalTelefonosExtraidos = 0;
 
-  rows.forEach(r => {
-    const nombre = r[colNombre];
-    const dias = Number(r[colDias]);
+  // Procesar en lotes para no bloquear la UI
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
 
-    // Procesar cada columna de teléfono
-    columnasTelefono.forEach(colTel => {
-      const valorCelda = r[colTel];
+    batch.forEach(r => {
+      const nombre = r[colNombre];
+      const dias = Number(r[colDias]);
 
-      // Extraer todos los números de 10 dígitos de esta celda
-      const telefonosEncontrados = extraerNumerosDe10Digitos(valorCelda);
+      // Procesar cada columna de teléfono
+      columnasTelefono.forEach(colTel => {
+        const valorCelda = r[colTel];
 
-      // Agregar cada teléfono encontrado como un contacto separado
-      telefonosEncontrados.forEach(telefono => {
-        if (nombre && telefono) {
-          appState.contactos.push({
-            nombre,
-            telefono,
-            dias
-          });
-          totalTelefonosExtraidos++;
-        }
+        // Extraer todos los números de 10 dígitos de esta celda
+        const telefonosEncontrados = extraerNumerosDe10Digitos(valorCelda);
+
+        // Agregar cada teléfono encontrado como un contacto separado
+        telefonosEncontrados.forEach(telefono => {
+          if (nombre && telefono) {
+            appState.contactos.push({
+              nombre,
+              telefono,
+              dias
+            });
+            totalTelefonosExtraidos++;
+          }
+        });
       });
     });
-  });
+
+    // Pequeño delay cada lote para mantener UI responsiva
+    if (i + BATCH_SIZE < rows.length) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
 
   renderContactos();
 
