@@ -199,6 +199,44 @@ ipcMain.handle('stop-cron', async () => {
 });
 
 // ================================
+// IPC - PROBAR CONEXIÓN WHATSAPP
+// ================================
+ipcMain.handle('test-whatsapp-connection', async (event, { token, phoneId }) => {
+  try {
+    const fetch = require('electron').net.fetch || require('node-fetch');
+
+    // Obtener información del número de teléfono
+    const url = `https://graph.facebook.com/v17.0/${phoneId}?fields=display_phone_number,verified_name,quality_rating`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    if (response.status === 200) {
+      return {
+        success: true,
+        phoneNumber: data.display_phone_number,
+        verifiedName: data.verified_name,
+        status: data.quality_rating || 'Activo'
+      };
+    }
+
+    return {
+      success: false,
+      error: data?.error?.message || 'Error desconocido al verificar conexión'
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ================================
 // IPC - ENVIAR WHATSAPP
 // ================================
 ipcMain.handle('send-whatsapp', async (event, { token, phoneId, numero, mensaje }) => {

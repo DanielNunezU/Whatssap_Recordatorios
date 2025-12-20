@@ -31,6 +31,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   await loadConfig();
   addLog('✅ Aplicación iniciada', 'success');
+
+  // Mostrar ayuda inicial si no hay credenciales configuradas
+  if (!appState.config.token || !appState.config.phoneId) {
+    setTimeout(() => {
+      addLog('⚠️ No se han configurado las credenciales de WhatsApp Business', 'info');
+      addLog('📝 Haz clic en "Configuración" y luego en "🔌 Probar Conexión" para obtener ayuda', 'info');
+    }, 1000);
+  }
 });
 
 // ============================
@@ -42,6 +50,7 @@ function setupEventListeners() {
   document.getElementById('btnCargar')?.addEventListener('click', cargarArchivo);
   document.getElementById('btnEnviar')?.addEventListener('click', enviarMensajes);
   document.getElementById('btnAutomatico')?.addEventListener('click', toggleAutomatico);
+  document.getElementById('btnTestConnection')?.addEventListener('click', testWhatsAppConnection);
 
   ['token', 'phoneId', 'codigoPais', 'diasEnvio', 'horaEjecucion', 'mensajeTemplate']
     .forEach(id => {
@@ -116,6 +125,116 @@ async function saveConfig() {
 
   await ipcRenderer.invoke('save-config', configToSave);
   addLog('💾 Configuración guardada', 'success');
+}
+
+// ============================
+// PRUEBA DE CONEXIÓN
+// ============================
+async function testWhatsAppConnection() {
+  const btnTest = document.getElementById('btnTestConnection');
+
+  // Validar que los campos estén llenos
+  if (!appState.config.token || !appState.config.phoneId) {
+    addLog('❌ Por favor ingresa el Token y Phone Number ID primero', 'error');
+    mostrarModalAyuda();
+    return;
+  }
+
+  addLog('🔄 Probando conexión con WhatsApp Business...', 'info');
+  btnTest.disabled = true;
+  btnTest.textContent = '⏳ Probando...';
+
+  try {
+    // Intentar obtener información del número de teléfono
+    const result = await ipcRenderer.invoke('test-whatsapp-connection', {
+      token: appState.config.token,
+      phoneId: appState.config.phoneId
+    });
+
+    if (result.success) {
+      addLog('✅ ¡Conexión exitosa con WhatsApp Business!', 'success');
+      addLog(`📱 Número verificado: ${result.phoneNumber || 'N/A'}`, 'success');
+      addLog(`📊 Estado: ${result.status || 'Activo'}`, 'success');
+    } else {
+      addLog('❌ Error de conexión: ' + result.error, 'error');
+
+      // Mensajes de ayuda específicos según el error
+      if (result.error.includes('Invalid OAuth') || result.error.includes('access token')) {
+        addLog('💡 El Token de Acceso parece inválido o ha expirado', 'info');
+        addLog('📝 Genera un nuevo token en Meta Business Suite', 'info');
+      } else if (result.error.includes('phone number') || result.error.includes('Phone number')) {
+        addLog('💡 El Phone Number ID parece incorrecto', 'info');
+        addLog('📝 Verifica el ID en WhatsApp Manager', 'info');
+      }
+
+      mostrarModalAyuda();
+    }
+  } catch (error) {
+    addLog('❌ Error al probar conexión: ' + error.message, 'error');
+    mostrarModalAyuda();
+  } finally {
+    btnTest.disabled = false;
+    btnTest.textContent = '🔌 Probar Conexión';
+  }
+}
+
+// ============================
+// MODAL DE AYUDA
+// ============================
+function mostrarModalAyuda() {
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;z-index:9999';
+
+  modal.innerHTML = `
+    <div style="background:#fff;padding:30px;width:600px;border-radius:12px;max-height:90vh;overflow-y:auto">
+      <h2 style="margin-top:0;color:#2563eb">🔧 ¿Cómo conectar con WhatsApp Business?</h2>
+
+      <div style="background:#fef3c7;padding:15px;border-radius:8px;margin-bottom:20px">
+        <strong>⚠️ Necesitas dos credenciales principales:</strong>
+        <ol style="margin:10px 0 0 0">
+          <li><strong>Token de Acceso</strong> (empieza con "EAA...")</li>
+          <li><strong>Phone Number ID</strong> (número de ~15 dígitos)</li>
+        </ol>
+      </div>
+
+      <h3 style="color:#2563eb">📋 Pasos rápidos:</h3>
+      <ol style="line-height:1.8">
+        <li><strong>Ir a Meta for Developers:</strong><br>
+          <a href="https://developers.facebook.com/" target="_blank" style="color:#2563eb">https://developers.facebook.com/</a>
+        </li>
+        <li><strong>Crear o seleccionar tu App</strong></li>
+        <li><strong>Agregar producto WhatsApp Business</strong></li>
+        <li><strong>Obtener Phone Number ID:</strong><br>
+          Ve a <em>WhatsApp → Primeros pasos → Configuración API</em>
+        </li>
+        <li><strong>Obtener Token Permanente:</strong><br>
+          Ve a <em>Meta Business Suite → Usuarios del sistema → Generar token</em>
+        </li>
+      </ol>
+
+      <div style="background:#dbeafe;padding:15px;border-radius:8px;margin:20px 0">
+        <strong>📖 Guía completa disponible:</strong><br>
+        Lee el archivo <code>GUIA_CONFIGURACION_WHATSAPP.md</code> para instrucciones detalladas paso a paso.
+      </div>
+
+      <h3 style="color:#dc2626">🔍 Problemas comunes:</h3>
+      <ul style="line-height:1.8">
+        <li><strong>Token inválido:</strong> Verifica que copiaste el token completo (muy largo, empieza con "EAA")</li>
+        <li><strong>Token expirado:</strong> Genera un nuevo token permanente</li>
+        <li><strong>Phone Number ID incorrecto:</strong> Debe ser el ID del número, no el número de teléfono</li>
+        <li><strong>Número no verificado:</strong> Completa la verificación en WhatsApp Manager</li>
+      </ul>
+
+      <div style="margin-top:20px;text-align:center">
+        <button onclick="this.parentElement.parentElement.parentElement.remove()"
+                style="padding:12px 24px;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;font-size:16px">
+          Entendido
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
 }
 
 // ============================
@@ -453,6 +572,14 @@ function getContactosParaEnviar() {
 }
 
 async function enviarMensajes() {
+  // Validar credenciales
+  if (!appState.config.token || !appState.config.phoneId) {
+    addLog('❌ Error: No has configurado las credenciales de WhatsApp Business', 'error');
+    addLog('💡 Por favor, ve a Configuración y completa el Token y Phone Number ID', 'info');
+    mostrarModalAyuda();
+    return;
+  }
+
   const aEnviar = getContactosParaEnviar();
 
   if (!aEnviar.length) {
@@ -477,21 +604,46 @@ async function enviarMensajes() {
 
   addLog(`📤 Enviando ${aEnviar.length} mensajes${filtroActivo}`, 'info');
 
+  let exitosos = 0;
+  let fallidos = 0;
+
   for (const c of aEnviar) {
     // Formatear número con código de país
     const numeroFormateado = formatearNumeroWhatsApp(c.telefono);
 
-    await ipcRenderer.invoke('send-whatsapp', {
+    const result = await ipcRenderer.invoke('send-whatsapp', {
       token: appState.config.token,
       phoneId: appState.config.phoneId,
       numero: numeroFormateado,
       mensaje: generarMensaje(c)
     });
 
-    addLog(`📲 Enviado a ${c.nombre}: +${numeroFormateado}`, 'info');
+    if (result.success) {
+      addLog(`✅ Enviado a ${c.nombre}: +${numeroFormateado}`, 'success');
+      exitosos++;
+    } else {
+      addLog(`❌ Error al enviar a ${c.nombre} (+${numeroFormateado}): ${result.error}`, 'error');
+      fallidos++;
+
+      // Detener envíos si hay error de autenticación
+      if (result.error.includes('Invalid OAuth') || result.error.includes('access token')) {
+        addLog('🛑 Deteniendo envíos: Token de acceso inválido o expirado', 'error');
+        addLog('💡 Por favor, genera un nuevo token en Meta Business Suite', 'info');
+        mostrarModalAyuda();
+        break;
+      }
+    }
+
+    // Pequeño delay entre mensajes para no saturar la API
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  addLog('✅ Mensajes enviados correctamente', 'success');
+  // Resumen final
+  if (exitosos > 0) {
+    addLog(`✅ Proceso completado: ${exitosos} enviados, ${fallidos} fallidos`, exitosos > fallidos ? 'success' : 'info');
+  } else {
+    addLog('❌ No se pudo enviar ningún mensaje', 'error');
+  }
 }
 
 // ============================
