@@ -10,6 +10,7 @@ const appState = {
     token: '',
     phoneId: '',
     codigoPais: '57',
+    diasEnvio: '',
     horaEjecucion: '08:00',
     mensajeTemplate: `Hola {nombre} 👋
 
@@ -42,7 +43,7 @@ function setupEventListeners() {
   document.getElementById('btnEnviar')?.addEventListener('click', enviarMensajes);
   document.getElementById('btnAutomatico')?.addEventListener('click', toggleAutomatico);
 
-  ['token', 'phoneId', 'codigoPais', 'horaEjecucion', 'mensajeTemplate']
+  ['token', 'phoneId', 'codigoPais', 'diasEnvio', 'horaEjecucion', 'mensajeTemplate']
     .forEach(id => {
       document.getElementById(id)?.addEventListener('input', e => {
         appState.config[id] = e.target.value;
@@ -379,25 +380,47 @@ function generarMensaje(c) {
 }
 
 function getContactosFiltrados() {
-  if (!appState.filtrarDias) {
-    return appState.contactos;
+  // Prioridad: 1) Días configurados en Config, 2) Filtro de UI, 3) Todos
+  const diasConfig = appState.config.diasEnvio;
+  const diasUI = appState.filtrarDias;
+
+  if (diasConfig) {
+    const diasFiltro = Number(diasConfig);
+    return appState.contactos.filter(c => c.dias === diasFiltro);
   }
-  const diasFiltro = Number(appState.filtrarDias);
-  return appState.contactos.filter(c => c.dias === diasFiltro);
+
+  if (diasUI) {
+    const diasFiltro = Number(diasUI);
+    return appState.contactos.filter(c => c.dias === diasFiltro);
+  }
+
+  return appState.contactos;
 }
 
 async function enviarMensajes() {
   const aEnviar = getContactosFiltrados();
 
   if (!aEnviar.length) {
-    const msgFiltro = appState.filtrarDias
-      ? `con ${appState.filtrarDias} días`
+    const diasConfig = appState.config.diasEnvio;
+    const diasUI = appState.filtrarDias;
+    const msgFiltro = diasConfig
+      ? `con ${diasConfig} días (desde Configuración)`
+      : diasUI
+      ? `con ${diasUI} días`
       : 'para enviar';
     addLog(`⚠️ No hay contactos ${msgFiltro}`, 'info');
     return;
   }
 
-  addLog(`📤 Enviando ${aEnviar.length} mensajes`, 'info');
+  const diasConfig = appState.config.diasEnvio;
+  const diasUI = appState.filtrarDias;
+  const filtroActivo = diasConfig
+    ? ` (filtro: ${diasConfig} días desde Config)`
+    : diasUI
+    ? ` (filtro: ${diasUI} días)`
+    : '';
+
+  addLog(`📤 Enviando ${aEnviar.length} mensajes${filtroActivo}`, 'info');
 
   for (const c of aEnviar) {
     // Formatear número con código de país

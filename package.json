@@ -31,10 +31,9 @@
     },
     "files": [
       "main.js",
-      "preload.js",
       "index.html",
       "renderer.js",
-      "styles.css",
+      "style.css",
       "node_modules/**/*"
     ],
     "win": {
@@ -46,11 +45,7 @@
           ]
         }
       ],
-      "icon": "icon.ico",
-      "signingHashAlgorithms": [
-        "sha256"
-      ],
-      "sign": null
+      "icon": "icon.ico"
     },
     "portable": {
       "artifactName": "${productName}-${version}-Portable.${ext}"
