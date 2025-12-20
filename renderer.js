@@ -94,16 +94,27 @@ async function loadConfig() {
 
   appState.config = { ...appState.config, ...res.config };
 
+  // Cargar valores en los campos EXCEPTO diasEnvio (siempre inicia vacío)
   Object.keys(appState.config).forEach(k => {
+    if (k === 'diasEnvio') return; // NO cargar diasEnvio
     const el = document.getElementById(k);
     if (el) el.value = appState.config[k];
   });
+
+  // Resetear diasEnvio a vacío al iniciar
+  appState.config.diasEnvio = '';
+  const diasEnvioEl = document.getElementById('diasEnvio');
+  if (diasEnvioEl) diasEnvioEl.value = '';
 
   addLog('⚙️ Configuración cargada', 'info');
 }
 
 async function saveConfig() {
-  await ipcRenderer.invoke('save-config', appState.config);
+  // Guardar config SIN diasEnvio (solo temporal para la sesión)
+  const configToSave = { ...appState.config };
+  delete configToSave.diasEnvio; // No guardar diasEnvio
+
+  await ipcRenderer.invoke('save-config', configToSave);
   addLog('💾 Configuración guardada', 'success');
 }
 
